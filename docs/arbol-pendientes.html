@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cómo se clasifica un pendiente · Equipamiento Clínico HHHA</title>
+<style>
+  :root{
+    --bg:#f5f7f6; --surface:#ffffff; --ink:#16262c; --muted:#5c6862; --faint:#8b958f;
+    --line:#e2e7e3; --line-soft:#eef1ee;
+    --teal:#0e7c86; --teal-ink:#0a565e; --teal-tint:#e2f0ef;
+    --green:#5f8a23; --green-ink:#4a6b14; --green-tint:#eef3df;
+    --gray:#71798f; --gray-ink:#565d6f; --gray-tint:#eceef0;
+    --radius:14px;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--sans); font-size:16px; line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .page{max-width:980px; margin:0 auto; padding:48px 24px 64px}
+
+  /* Header */
+  .eyebrow{
+    font-size:12px; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--teal); margin:0 0 14px;
+  }
+  h1{font-size:clamp(26px,4vw,34px); font-weight:600; letter-spacing:-.01em; line-height:1.15; margin:0 0 12px}
+  .lede{font-size:17px; color:var(--muted); max-width:60ch; margin:0}
+
+  /* Núcleo / base */
+  .base{
+    margin-top:36px; background:var(--surface); border:1px solid var(--line);
+    border-radius:var(--radius); padding:22px 24px;
+  }
+  .base-label{
+    display:flex; align-items:center; gap:10px;
+    font-size:12px; font-weight:600; letter-spacing:.13em; text-transform:uppercase;
+    color:var(--ink); margin-bottom:16px;
+  }
+  .base-label .mark{width:22px; height:3px; border-radius:2px; background:var(--ink)}
+  .chips{display:flex; flex-wrap:wrap; gap:8px}
+  .chip{
+    font-size:13.5px; color:var(--ink); background:var(--bg);
+    border:1px solid var(--line); border-radius:8px; padding:5px 11px;
+  }
+  .hint{margin:16px 0 0; font-size:13px; color:var(--faint); line-height:1.55}
+
+  /* Connector */
+  .split{
+    display:flex; align-items:center; gap:16px; margin:30px 4px 8px;
+    color:var(--muted); font-size:13px; font-weight:600;
+    letter-spacing:.12em; text-transform:uppercase;
+  }
+  .split::before,.split::after{content:""; flex:1; height:1px; background:var(--line)}
+
+  /* Branches */
+  .branches{display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-top:18px}
+  .branch{
+    position:relative; background:var(--surface); border:1px solid var(--line);
+    border-radius:var(--radius); padding:20px 20px 22px;
+  }
+  .branch::before{
+    content:""; position:absolute; top:-19px; left:50%; width:1px; height:18px;
+    background:var(--line);
+  }
+  .b-head{display:flex; align-items:baseline; gap:9px; margin-bottom:4px}
+  .dot{width:9px; height:9px; border-radius:50%; flex:none; transform:translateY(1px)}
+  .b-name{font-size:17px; font-weight:600; letter-spacing:-.01em}
+  .b-origin{font-size:13px; color:var(--faint)}
+  .b-flag{
+    display:inline-block; margin:6px 0 0; font-size:12px; color:var(--muted);
+    background:var(--line-soft); border-radius:6px; padding:3px 9px;
+  }
+
+  .type{margin-top:18px}
+  .type:first-of-type{margin-top:16px}
+  .type-name{font-size:15px; font-weight:600; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+  .tag{
+    font-size:11.5px; font-weight:600; letter-spacing:.02em; padding:2px 8px; border-radius:20px;
+  }
+  .type-desc{font-size:13.5px; color:var(--muted); margin:4px 0 0; line-height:1.5}
+
+  .field-label{font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); margin:14px 0 7px}
+  .add{display:flex; flex-wrap:wrap; gap:7px}
+  .add .chip{
+    font-weight:500; background:var(--teal-tint); border-color:transparent; color:var(--teal-ink);
+  }
+  .add .chip::before{content:"+ "; opacity:.55; font-weight:600}
+  .steps{
+    font-size:13.5px; color:var(--ink); line-height:1.55; background:var(--bg);
+    border:1px solid var(--line); border-radius:10px; padding:10px 12px;
+  }
+  .arrow{color:var(--teal); font-weight:600; padding:0 3px}
+  .note{
+    margin:14px 0 0; padding-top:13px; border-top:1px solid var(--line-soft);
+    font-size:12.5px; color:var(--muted); line-height:1.55;
+  }
+
+  /* Branch accents */
+  .correctivo .dot{background:var(--teal)}
+  .preventiva .dot{background:var(--green)}
+  .administrativo .dot{background:var(--gray)}
+  .preventiva .field-label{color:var(--green-ink)}
+  .correctivo .tag{background:var(--teal-tint); color:var(--teal-ink)}
+  .preventiva .tag{background:var(--green-tint); color:var(--green-ink)}
+
+  /* Footer */
+  .foot{
+    margin-top:40px; padding-top:20px; border-top:1px solid var(--line);
+    font-size:14px; color:var(--muted); line-height:1.6;
+  }
+  .foot strong{color:var(--ink); font-weight:600}
+
+  /* Entrance */
+  @media (prefers-reduced-motion:no-preference){
+    .reveal{opacity:0; transform:translateY(10px); animation:rise .5s cubic-bezier(.2,.7,.3,1) forwards}
+    .base{animation-delay:.05s} .split{animation-delay:.12s}
+    .correctivo{animation-delay:.18s} .preventiva{animation-delay:.26s} .administrativo{animation-delay:.34s}
+    .foot{animation-delay:.42s}
+    @keyframes rise{to{opacity:1; transform:none}}
+  }
+
+  a:focus-visible,.branch:focus-visible{outline:2px solid var(--teal); outline-offset:3px}
+
+  @media (max-width:760px){
+    .page{padding:32px 18px 48px}
+    .branches{grid-template-columns:1fr; gap:14px}
+    .branch::before{display:none}
+  }
+  @media print{
+    body{background:#fff}
+    .page{max-width:none; padding:0}
+    .reveal{opacity:1; transform:none; animation:none}
+    .base,.branch{border-color:#cfd6d1; break-inside:avoid}
+    .branches{gap:10px}
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header>
+    <p class="eyebrow">Módulo de pendientes · MP 2026</p>
+    <h1>Cómo se clasifica un pendiente</h1>
+    <p class="lede">El núcleo de datos que captura todo pendiente, y lo que añade cada tipo según de dónde nace.</p>
+  </header>
+
+  <section class="base reveal" aria-labelledby="base-h">
+    <div class="base-label" id="base-h"><span class="mark"></span> Base · todo pendiente captura</div>
+    <div class="chips">
+      <span class="chip">Equipo</span>
+      <span class="chip">Serie</span>
+      <span class="chip">N° Inventario</span>
+      <span class="chip">Servicio clínico</span>
+      <span class="chip">Tipo</span>
+      <span class="chip">Fecha compromiso</span>
+      <span class="chip">Prioridad</span>
+      <span class="chip">Estado</span>
+      <span class="chip">Responsable ejecutivo</span>
+      <span class="chip">Responsable administrativo</span>
+      <span class="chip">Descripción</span>
+      <span class="chip">Tareas</span>
+      <span class="chip">Nota</span>
+    </div>
+    <p class="hint">El N° Inventario autocompleta equipo, serie y servicio. La fecha de creación y el registro de actividad se guardan solos.</p>
+  </section>
+
+  <div class="split reveal">según de dónde nace</div>
+
+  <section class="branches">
+
+    <article class="branch correctivo reveal" tabindex="0">
+      <div class="b-head">
+        <span class="dot"></span>
+        <span class="b-name">Correctivo</span>
+        <span class="b-origin">el equipo falló</span>
+      </div>
+      <span class="b-flag">hay OT en SIGEM</span>
+
+      <div class="type">
+        <div class="type-name">Pendiente documental <span class="tag">reporte no recibido</span></div>
+        <p class="type-desc">El equipo ya opera, pero falta que llegue el Reporte de Servicio de una visita o un servicio técnico.</p>
+      </div>
+
+      <p class="field-label">Campos que añade</p>
+      <div class="add chips">
+        <span class="chip">Folio SIGEM</span>
+        <span class="chip">Empresa / proveedor</span>
+        <span class="chip">Origen: visita o servicio técnico</span>
+      </div>
+
+      <p class="field-label">Tareas automáticas</p>
+      <div class="steps">Gestionar el reporte con el proveedor <span class="arrow">→</span> recibirlo y verificarlo <span class="arrow">→</span> archivarlo en la carpeta física</div>
+
+      <p class="note">El responsable ejecutivo es <em>quien consigue el reporte</em>; el administrativo, por defecto, es Cristián.</p>
+    </article>
+
+    <article class="branch preventiva reveal" tabindex="0">
+      <div class="b-head">
+        <span class="dot"></span>
+        <span class="b-name">Preventiva</span>
+        <span class="b-origin">una MP programada</span>
+      </div>
+      <span class="b-flag">ninguna lleva Folio SIGEM</span>
+
+      <div class="type">
+        <div class="type-name">Protocolo interno</div>
+        <p class="type-desc">Falta el reporte interno de la mantención preventiva.</p>
+      </div>
+      <div class="type">
+        <div class="type-name">Protocolo externo</div>
+        <p class="type-desc">Lo completa el proveedor. Añade <strong>Empresa</strong>.</p>
+      </div>
+      <div class="type">
+        <div class="type-name">Reprogramación MP</div>
+        <p class="type-desc">La MP no se pudo ejecutar y hay que reprogramarla.</p>
+      </div>
+
+      <p class="field-label">Tareas automáticas · reprogramación</p>
+      <div class="steps">Generar e imprimir el reporte, y recoger la firma del supervisor y la del jefe de equipos.</div>
+    </article>
+
+    <article class="branch administrativo reveal" tabindex="0">
+      <div class="b-head">
+        <span class="dot"></span>
+        <span class="b-name">Administrativo</span>
+        <span class="b-origin">u otra gestión</span>
+      </div>
+
+      <div class="type">
+        <div class="type-name">Otro</div>
+        <p class="type-desc">Solo el núcleo común, sin campos extra. Por ejemplo, una carpeta extraviada o una gestión puntual que igual conviene seguir.</p>
+      </div>
+    </article>
+
+  </section>
+
+  <p class="foot reveal">Cinco tipos en tres orígenes. Solo el <strong>pendiente documental</strong> (rama correctiva) añade <strong>Folio SIGEM, Empresa y Origen</strong> — los datos que lo enlazan con su expediente en el sistema. Las de preventiva se distinguen sobre todo por sus tareas; <strong>Otro</strong> se queda en la base.</p>
+
+</main>
+</body>
+</html>

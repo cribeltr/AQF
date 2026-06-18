@@ -252,7 +252,7 @@
     <input id="globalSearch" type="text" placeholder="Buscar equipo, inventario, serie, servicio, marca, modelo…" autocomplete="off">
   </div>
   <div class="topbar-actions">
-    <button class="btn sm" id="btnImportXlsm" title="Recargar la programación oficial (.xlsm)">Importar .xlsm</button>
+    <button class="btn sm" id="btnImportXlsm" title="Cargar/recargar el Excel (integrado .xlsx o maestro .xlsm)">Importar Excel</button>
     <button class="btn sm" id="btnExportJson" title="Respaldo JSON">Exportar JSON</button>
     <button class="btn sm" id="btnImportJson" title="Restaurar respaldo JSON">Importar JSON</button>
     <button class="btn sm ghost" id="btnReset" title="Borrar datos locales">⟲</button>
@@ -279,12 +279,12 @@
   <div class="view" id="view-load">
     <div class="loadscreen">
       <div class="loadcard">
-        <h1>Cargar la programación 2026</h1>
-        <p>Importa <b>ProgramaciónMP2026.xlsm</b> (documento oficial). La app lo <b>lee</b>, nunca lo escribe.</p>
+        <h1>Cargar el sistema 2026</h1>
+        <p>Importa el <b>Sistema_Gestion_MP2026_Integrado.xlsx</b> (equipos, MP, pendientes, correctivos) o la <b>ProgramaciónMP2026.xlsm</b>. La app lee el archivo, nunca lo escribe.</p>
         <label class="dropzone" id="dropzone" style="display:block; cursor:pointer">
           <input type="file" id="fileXlsm" accept=".xlsm,.xlsx,.xlsb" hidden>
           <div style="font-size:15px; font-weight:600; margin-bottom:4px">Arrastra el archivo aquí o haz clic</div>
-          <div class="small">Hojas <span class="mono">PMP_2026</span> y <span class="mono">Registro_MP-2026</span> · encabezados fila 7 · datos fila 8</div>
+          <div class="small">Detecta el formato automáticamente · el integrado trae equipos, registro de MP, pendientes y los 7 módulos de correctivo</div>
         </label>
         <p class="small" style="margin-top:16px">¿Tienes un respaldo? <button class="btn sm" id="btnImportJson2">Importar JSON</button></p>
       </div>
@@ -384,13 +384,15 @@ const RESULTADOS_MP = ['','Si','Si-RA','No','C1','C2','C3','C4','C5','C6','C7','
 
 /* ---------- Estado global de la app ---------- */
 const DB = {
-  equipos: [],          // parseados desde el .xlsm + persistidos
+  equipos: [],          // parseados desde el archivo + persistidos
   detalleMP: {},        // key `${eqId}|${mes}` -> {fecha,ejecutor,tipo,empresa,ingExterno,estado,result,obs,borrador,creado}
-  pendientes: [],       // [{id, tipo, origen, eqId, ...nucleo, tareas:[{t,done}], ...}]
-  correctivos: [],      // [{id, eqId, folioSIGEM, ...expediente}]
-  meta: {importadoEl:null, archivo:null}
+  historialMP: [],      // [{eqId,mes,fecha,ejecucion,empresa,resultado,result,estado,ingeniero,obs,año}] (trazabilidad)
+  pendientes: [],       // [{id, tipo, origen, eqId, tipoOriginal, situacion, ...nucleo, tareas:[{t,done}], srcId}]
+  correctivos: [],      // [{id, eqId, folioSIGEM, ruta, ...expediente, srcImport}]
+  catalogos: {ingenieros:[], empresas:[]},
+  meta: {importadoEl:null, archivo:null, formato:null}
 };
-const KEYS = {equipos:'mp2026.equipos', detalleMP:'mp2026.detalleMP', pendientes:'mp2026.pendientes', correctivos:'mp2026.correctivos', meta:'mp2026.meta'};
+const KEYS = {equipos:'mp2026.equipos', detalleMP:'mp2026.detalleMP', historialMP:'mp2026.historialMP', pendientes:'mp2026.pendientes', correctivos:'mp2026.correctivos', catalogos:'mp2026.catalogos', meta:'mp2026.meta'};
 
 const UI = {
   view:'tablero',
@@ -398,6 +400,7 @@ const UI = {
   mes: Math.min(new Date().getFullYear()===2026 ? new Date().getMonth() : 5, 11),
   // filtros vista Equipos
   eq:{ search:'', fam:'', servicio:'', estado:'', mes:'', sortKey:'', sortDir:0, mpFilter:'' },
+  pend:{ estado:'abiertos', tipo:'', prioridad:'' },
   selectedEq:null,
 };
 
@@ -424,8 +427,10 @@ function save(part){
   try{
     if(!part||part==='equipos') localStorage.setItem(KEYS.equipos, JSON.stringify(DB.equipos));
     if(!part||part==='detalleMP') localStorage.setItem(KEYS.detalleMP, JSON.stringify(DB.detalleMP));
+    if(!part||part==='historialMP') localStorage.setItem(KEYS.historialMP, JSON.stringify(DB.historialMP));
     if(!part||part==='pendientes') localStorage.setItem(KEYS.pendientes, JSON.stringify(DB.pendientes));
     if(!part||part==='correctivos') localStorage.setItem(KEYS.correctivos, JSON.stringify(DB.correctivos));
+    if(!part||part==='catalogos') localStorage.setItem(KEYS.catalogos, JSON.stringify(DB.catalogos));
     if(!part||part==='meta') localStorage.setItem(KEYS.meta, JSON.stringify(DB.meta));
   }catch(e){console.error(e);toast('No se pudo guardar (localStorage lleno?)');}
 }
@@ -433,11 +438,14 @@ function load(){
   try{
     DB.equipos    = JSON.parse(localStorage.getItem(KEYS.equipos)||'[]');
     DB.detalleMP  = JSON.parse(localStorage.getItem(KEYS.detalleMP)||'{}');
+    DB.historialMP= JSON.parse(localStorage.getItem(KEYS.historialMP)||'[]');
     DB.pendientes = JSON.parse(localStorage.getItem(KEYS.pendientes)||'[]');
     DB.correctivos= JSON.parse(localStorage.getItem(KEYS.correctivos)||'[]');
-    DB.meta       = JSON.parse(localStorage.getItem(KEYS.meta)||'{"importadoEl":null,"archivo":null}');
+    DB.catalogos  = JSON.parse(localStorage.getItem(KEYS.catalogos)||'{"ingenieros":[],"empresas":[]}');
+    DB.meta       = JSON.parse(localStorage.getItem(KEYS.meta)||'{"importadoEl":null,"archivo":null,"formato":null}');
   }catch(e){console.error(e);}
 }
+function ejecutoresList(){ return (DB.catalogos.ingenieros&&DB.catalogos.ingenieros.length)? DB.catalogos.ingenieros : EJECUTORES; }
 
 /* ============================================================================
    Lectura del .xlsm  (SheetJS)
@@ -534,18 +542,260 @@ async function importXlsmFile(file){
   try{
     toast('Leyendo '+file.name+'…');
     const buf = await file.arrayBuffer();
-    const nuevos = parseWorkbook(buf);
-    if(!nuevos.length){toast('No se encontraron equipos');return;}
-    // Refrescar Oficial: reemplazamos prog/registro (el .xlsm manda en el cumplimiento);
-    // los datos operativos (detalle, pendientes, correctivos) se conservan por eqId.
-    DB.equipos = nuevos;
-    DB.meta = {importadoEl:new Date().toISOString(), archivo:file.name};
-    reconcileOficial();
-    save();
-    toast(`Cargados ${nuevos.length} equipos desde ${file.name}`);
+    const wb = XLSX.read(buf, {type:'array', cellDates:true});
+    // Detección de formato: integrado (sistema completo) vs maestro (ProgramaciónMP2026.xlsm)
+    const esIntegrado = !!(wb.Sheets['MP Carta 2026'] || (wb.Sheets['Equipos'] && wb.Sheets['Registro MP']));
+    if(esIntegrado){
+      const r = parseIntegrado(wb);
+      DB.equipos = r.equipos;
+      DB.detalleMP = r.detalleMP;
+      DB.historialMP = r.historialMP;
+      DB.catalogos = r.catalogos;
+      // Correctivos: refrescar los importados (srcImport) y conservar los creados en la app.
+      DB.correctivos = DB.correctivos.filter(c=>!c.srcImport).concat(r.correctivos);
+      // Pendientes: refrescar los importados (srcId) y conservar los creados en la app.
+      DB.pendientes = DB.pendientes.filter(p=>!p.srcId).concat(r.pendientes);
+      DB.meta = {importadoEl:new Date().toISOString(), archivo:file.name, formato:'integrado'};
+      reconcileOficial();
+      save();
+      toast(`Sistema integrado cargado: ${r.equipos.length} equipos · ${r.pendientes.length} pendientes · ${r.correctivos.length} OT · ${r.historialMP.length} registros MP`);
+    } else {
+      const nuevos = parseWorkbook(buf);
+      if(!nuevos.length){toast('No se encontraron equipos');return;}
+      DB.equipos = nuevos;
+      DB.meta = {importadoEl:new Date().toISOString(), archivo:file.name, formato:'maestro'};
+      reconcileOficial();
+      save();
+      toast(`Cargados ${nuevos.length} equipos desde ${file.name}`);
+    }
     if(UI.view==='load') go('tablero');
     renderAll();
   }catch(e){console.error(e);toast('Error al leer el archivo: '+e.message);}
+}
+
+/* ---------- Lectura del sistema integrado (Sistema_Gestion_MP2026_Integrado.xlsx) ---------- */
+const MES_IDX = (()=>{const m={};['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'].forEach((n,i)=>m[n]=i);MES_SHORT.forEach((n,i)=>m[n.toLowerCase()]=i);return m;})();
+function mesAIndice(v){ if(v==null)return null; const s=String(v).trim().toLowerCase(); if(s in MES_IDX)return MES_IDX[s]; const n=parseInt(s,10); return (n>=1&&n<=12)?n-1:null; }
+function toISO(v){
+  if(v==null||v==='')return '';
+  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+  const s=String(v).trim();
+  let m=s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);      // dd-mm-yyyy
+  if(m){let[,d,mo,y]=m;y=y.length===2?'20'+y:y;return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;}
+  m=s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);             // yyyy-mm-dd
+  if(m){return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;}
+  const d=new Date(s); return isNaN(d)?'' : d.toISOString().slice(0,10);
+}
+function yearOf(iso){ const m=String(iso).match(/^(\d{4})/); return m?+m[1]:null; }
+function hash(str){let h=0;for(let i=0;i<str.length;i++){h=(h*31+str.charCodeAt(i))|0;}return 'i'+(h>>>0).toString(36);}
+
+function parseIntegrado(wb){
+  const sj = (name,opt)=> wb.Sheets[name]? XLSX.utils.sheet_to_json(wb.Sheets[name], Object.assign({header:1, raw:true, defval:null, blankrows:false}, opt)) : [];
+  const T = v=> v==null?'':String(v).trim();
+
+  // ---- Catálogos ----
+  const cat = sj('Catálogos');
+  const ingenieros=[], empresas=[];
+  for(let r=3;r<cat.length;r++){ const row=cat[r]||[]; if(T(row[0]))ingenieros.push(T(row[0])); }
+  const catalogos={ingenieros: ingenieros.length?ingenieros:EJECUTORES.slice(), empresas};
+
+  // ---- Periodicidad desde MP Carta (por inventario) + códigos de mes ----
+  const carta = sj('MP Carta 2026');   // encabezados fila 3 (idx2), datos desde fila 4 (idx3); meses cols I..T = idx 8..19
+  const periodicidadByInv={}, cartaByInv={};
+  for(let r=3;r<carta.length;r++){
+    const row=carta[r]||[]; const inv=T(row[0]).toUpperCase(); if(!inv)continue;
+    periodicidadByInv[inv]=T(row[7]);
+    const meses=[]; for(let m=0;m<12;m++) meses.push(T(row[8+m]).toUpperCase());
+    cartaByInv[inv]=meses;
+  }
+  // Código MP Carta -> {prog, r}
+  const mapCarta = code=>{
+    if(!code) return {prog:null,r:null};
+    if(code==='E') return {prog:'X', r:'Si'};        // ejecutada
+    if(code==='X') return {prog:'X', r:null};        // programada
+    if(code==='R') return {prog:'R', r:null};        // reprogramada
+    if(code==='B') return {prog:'X', r:'Baja'};
+    if(/^C[1-8]$/.test(code)) return {prog:'X', r:code};
+    if(['RA','PM'].includes(code)) return {prog:code, r:null};
+    return {prog:null,r:null};
+  };
+
+  // ---- Equipos ----
+  const eqRows = sj('Equipos');         // encabezados fila 1 (idx0), datos fila 2 (idx1)
+  const equipos=[], eqByInv={}, eqBySer={};
+  for(let r=1;r<eqRows.length;r++){
+    const row=eqRows[r]||[]; const inv=T(row[2]); const serie=T(row[10]);
+    if(!inv && !serie && !T(row[3])) continue;
+    const id = cleanKey(inv,serie) || ('row:'+r);
+    const invU=inv.toUpperCase();
+    const meses=cartaByInv[invU]||[];
+    const prog=[], registro=[];
+    for(let m=0;m<12;m++){ const mc=mapCarta(meses[m]); prog.push(mc.prog); registro.push({p:mc.prog, r:mc.r}); }
+    const eq={
+      id, fam:T(row[3]), idPlanilla:T(row[0]), carpeta:T(row[1]),
+      inventario:inv, equipo:T(row[3]), servicio:T(row[4]), unidad:T(row[5]),
+      ubicacion:T(row[6]), procedencia:T(row[7]), marca:T(row[8]), modelo:T(row[9]),
+      serie:serie, anioInstalacion:T(row[11]), vidaUtilResidual:'',
+      clasificacion:T(row[12]), enuBaja:'', frecuencia:periodicidadByInv[invU]||'',
+      prog, registro,
+    };
+    equipos.push(eq);
+    if(inv) eqByInv[invU]=eq;
+    if(serie) eqBySer[serie.toUpperCase()]=eq;
+  }
+  const findEq = (inv,serie)=> (inv&&eqByInv[T(inv).toUpperCase()]) || (serie&&eqBySer[T(serie).toUpperCase()]) || null;
+
+  // ---- Registro MP (tabla larga) -> detalleMP + historialMP ----
+  const rg = sj('Registro MP');         // encabezados fila 1, datos fila 2
+  const detalleMP={}, historialMP=[];
+  for(let r=1;r<rg.length;r++){
+    const row=rg[r]||[]; const inv=T(row[0]); if(!inv && !T(row[2])) continue;
+    const eq=findEq(inv,T(row[2])); if(!eq) continue;
+    const mes=mesAIndice(row[6]); if(mes==null) continue;
+    const fecha=toISO(row[11]);
+    let result = normResultInt(row[9]);
+    const año = yearOf(fecha);
+    if(result==='Si' && año && año<2026) result='Si-RA';      // mantención del año anterior
+    const ejec=T(row[7]);                                     // Interno / Externo
+    const ing=T(row[13]);
+    const estado=normEstado(row[12]);
+    const ev={ eqId:eq.id, mes, fecha, ejecucion:ejec, empresa:T(row[8]), resultado:T(row[9]),
+      result, descResultado:T(row[10]), estado, ingeniero:ing, obs:T(row[16]), año };
+    historialMP.push(ev);
+    // detalleMP por equipo+mes: prioriza el evento más informativo (ejecutado > causal > otro)
+    const key=eq.id+'|'+mes; const prev=detalleMP[key];
+    const rank = x=> (x==='Si'||x==='Si-RA')?3 : /^C[1-8]$/.test(x||'')?2 : x?1:0;
+    if(!prev || rank(result) >= rank(prev.result)){
+      detalleMP[key]={ fecha, ejecutor:ing, tipo: ejec||'Interno', empresa:T(row[8]),
+        ingExterno: ejec==='Externo'?ing:'', estado, result: result||'', obs:T(row[10])||T(row[16]),
+        borrador:false, creado:(fecha||todayISO())+'T00:00:00.000Z' };
+    }
+    // refleja en registro del equipo
+    if(result){ eq.registro[mes].r = result; }
+  }
+
+  // ---- Correctivos: join de las 7 hojas por Folio SIGEM ----
+  const idxByFolio = (rows, col=0)=>{ const m={}; for(let r=1;r<rows.length;r++){const row=rows[r]||[];const f=T(row[col]); if(f&&!m[f])m[f]=row;} return m; };
+  const ot = sj('1. Órdenes de Trabajo');
+  const compra=idxByFolio(sj('2. Línea de Compra'));
+  const repu=idxByFolio(sj('3. Repuestos'));
+  const visita=idxByFolio(sj('4. Visitas Técnicas'));
+  const envio=idxByFolio(sj('5. Servicio Técnico (Envíos)'));
+  const baja=idxByFolio(sj('6. Bajas'));
+  const terreno=idxByFolio(sj('7. Reparación en Terreno'));
+  const correctivos=[];
+  for(let r=1;r<ot.length;r++){
+    const o=ot[r]||[]; const folio=T(o[0]); if(!folio && !T(o[5])) continue;
+    const eq=findEq(T(o[5]),T(o[6]));
+    const c=nuevoCorrectivo(eq); c.srcImport=true; c.srcId=hash('OT|'+folio);
+    c.folioSIGEM=folio; c.fechaOT=toISO(o[1]); c.tecnico=T(o[2]); c.requerimiento=T(o[3]);
+    c.equipo=T(o[4])||c.equipo; c.inventario=T(o[5])||c.inventario; c.serie=T(o[6])||c.serie;
+    c.estadoInicial=normEstado(o[7])||'No Operativo'; c.servicio=T(o[8])||c.servicio;
+    c.fechaCierreOT=toISO(o[10]);
+    const cerradoEv = /cerrad/i.test(T(o[9]));
+    // ruta según hoja presente
+    const tr=terreno[folio], rp=repu[folio], vi=visita[folio], en=envio[folio], ba=baja[folio];
+    if(tr){ c.soluTerreno=true; c.terrenoFecha=toISO(tr[1]); c.terrenoDesc=T(tr[2]); c.terrenoEstado=normEstado(tr[3])||'Operativo'; }
+    else c.soluTerreno=false;
+    if(ba){ c.ruta='D'; c.rD_folio=T(ba[1]); c.rD_resp=T(ba[2]); c.rD_fecha=toISO(ba[3]); c.rD_motivo=T(ba[4]); }
+    else if(en){ c.ruta='C'; c.enviadoST=true; c.rC_hojaEnvio=T(en[1]); c.rC_respEnvia=T(en[2]); c.rC_fenvio=toISO(en[3]); c.rC_empresa=T(en[4]); c.rC_nrep=T(en[5]); c.rC_freprep=toISO(en[6]); c.rC_archivado=/sí|si/i.test(T(en[7])); c.rC_fretorno=toISO(en[8]); c.rC_guia=T(en[9]); c.rC_estadoRetorno=normEstado(en[10]); c.rC_reeval=T(en[11]); c.retorno=!!c.rC_fretorno; c.reporteRecibido=/sí|si/i.test(T(en[12])); c.respConseguir=T(en[13]); c.respAdministrativo=T(en[14])||c.respAdministrativo; }
+    else if(vi){ c.ruta='B'; c.rB_fecha=toISO(vi[1]); c.rB_empresa=T(vi[2]); c.rB_ing=T(vi[3]); c.rB_nrep=T(vi[4]); c.rB_freprep=toISO(vi[5]); c.rB_archivado=/sí|si/i.test(T(vi[6])); c.rB_reparo=/^reparó|^repar/i.test(T(vi[7]))?'Sí':(T(vi[7])?'No':''); c.rB_desc=T(vi[8]); c.rB_estado=normEstado(vi[9]); c.rB_fcierre=toISO(vi[10]); c.reporteRecibido=/sí|si/i.test(T(vi[11])); c.respConseguir=T(vi[12]); c.respAdministrativo=T(vi[13])||c.respAdministrativo; }
+    else if(rp){ c.ruta='A'; c.rA_fecha=toISO(rp[1]); c.rA_desc=T(rp[2]); c.rA_estado=normEstado(rp[3])||'Operativo'; }
+    // línea de compra
+    const lc=compra[folio];
+    if(lc){ c.compra=true; c.cot_fecha=toISO(lc[2]); c.cot_prov=T(lc[3]); c.cot_num=T(lc[4]); c.cot_monto=T(lc[5]); c.modalidad=T(lc[6]); c.it_num=T(lc[7]); c.it_fecha=toISO(lc[8]); c.it_resp=T(lc[9]); c.oc_num=T(lc[10]); c.oc_femision=toISO(lc[11]); c.oc_desc=T(lc[12]); c.oc_fenvio=toISO(lc[13]); }
+    c.cerrado = cerradoEv || (c.ruta==='D' && !!c.rD_fecha) || (!!c.fechaCierreOT && c.reporteRecibido);
+    correctivos.push(c);
+  }
+
+  // ---- Pendientes: clasificar y ajustar al modelo del programa, conservando la info ----
+  const pe = sj('Pendientes');          // encabezados fila 1, datos fila 2
+  const pendientes=[];
+  for(let r=1;r<pe.length;r++){
+    const row=pe[r]||[]; if(!T(row[0]) && !T(row[2])) continue;
+    const inv=T(row[2]); const serie=T(row[1]); const eq=findEq(inv,serie);
+    const tipoOriginal=T(row[3]); const desc=T(row[12]);
+    const cls = classifyPendiente(tipoOriginal, desc, eq, correctivos);
+    const estadoExcel=T(row[7]);    // Hecho / Por hacer / En proceso
+    const situacion=T(row[6]);       // Resuelto / Vigente / Vencido
+    const resuelto = /hecho/i.test(estadoExcel) || /resuelto/i.test(situacion);
+    const tareasParsed = parseTareas(row[13]);
+    const p = nuevoPendiente(cls.tipo, eq, {
+      tipoOriginal, situacion,
+      descripcion: desc,
+      prioridad: T(row[8])||'Media',
+      fechaCompromiso: toISO(row[4]),
+      respEjecutivo: T(row[9]) || cls.respEjecutivo || '',
+      respAdministrativo: T(row[10]) || (cls.tipo==='documental'?'Cristián Beltrán Oviedo':''),
+      enEsperaDe: T(row[11]),
+      causal: cls.causal||'',
+      estado: resuelto?'Resuelto':(/proceso/i.test(estadoExcel)?'En proceso':'Abierto'),
+      fechaCompletado: toISO(row[14]),
+      creado: toISO(row[15]) ? toISO(row[15])+'T00:00:00.000Z' : new Date().toISOString(),
+      tareas: tareasParsed.length? tareasParsed : (PENDIENTE_TIPOS[cls.tipo].tareas||[]).map(t=>({t,done:resuelto})),
+    });
+    if(cls.tipo==='documental'){ p.folioSIGEM=cls.folioSIGEM||''; p.origenDoc=cls.origenDoc||'visita'; p.empresa=cls.empresa||''; }
+    if(resuelto) p.tareas.forEach(t=>t.done=true);
+    p.srcId = hash('PEND|'+inv+'|'+tipoOriginal+'|'+desc+'|'+T(row[15]));
+    pendientes.push(p);
+  }
+
+  return {equipos, detalleMP, historialMP, pendientes, correctivos, catalogos};
+
+  // resultado MP del archivo integrado -> código del programa
+  function normResultInt(v){
+    if(v==null)return null; const s=String(v).trim(); const up=s.toUpperCase().replace('Í','I');
+    if(/^C[1-8]$/.test(up))return up;
+    if(up==='SI'||up==='SÍ')return 'Si';
+    if(up==='NO')return 'No'; if(up==='NU')return 'NU'; if(up==='FS')return 'FS';
+    if(up==='BAJA')return 'Baja'; if(up.startsWith('SI-RA')||up.startsWith('SÍ-RA'))return 'Si-RA';
+    return null;
+  }
+  function normEstado(v){
+    if(v==null)return ''; const s=String(v).trim().toLowerCase();
+    if(s.startsWith('oper'))return 'Operativo';
+    if(s.includes('no oper'))return 'No Operativo';
+    if(s.includes('servicio'))return 'Servicio Técnico';
+    if(s.includes('prést')||s.includes('prest'))return 'Préstamo';
+    if(s.includes('ubicab'))return 'No Ubicable';
+    if(s.startsWith('baja'))return 'Baja';
+    return T(v);
+  }
+}
+
+// Parser de tareas "[x] hecho\n[ ] pendiente" -> [{t,done}]
+function parseTareas(cell){
+  if(cell==null) return [];
+  const s=String(cell).trim(); if(!s || s==='—') return [];
+  return s.split(/\n|;/).map(x=>x.trim()).filter(Boolean).map(line=>{
+    const m=line.match(/^\[(x| |\s)\]\s*(.*)$/i);
+    if(m) return {t:m[2].trim(), done:/x/i.test(m[1])};
+    return {t:line, done:false};
+  }).filter(t=>t.t);
+}
+
+/* Clasificador de pendientes: lee tipoOriginal + descripción y los ajusta al modelo
+   del programa (5 tipos en 3 orígenes), conservando la información original. */
+function classifyPendiente(tipoOriginal, desc, eq, correctivos){
+  const t=(tipoOriginal||'').toLowerCase();
+  const d=(desc||'').toLowerCase();
+  const blob=t+' '+d;
+  const causalM=blob.match(/c[1-8]/i); const causal=causalM?causalM[0].toUpperCase():'';
+  // Reprogramación
+  if(/reprogram/.test(blob)) return {tipo:'reprogramacion', causal};
+  // Reporte de servicio / documento de un correctivo (hay OT del equipo o menciona SIGEM/reporte de servicio)
+  const ot = eq && correctivos.find(c=>c.eqId===eq.id);
+  if(/reporte de servicio|servicio t[eé]cnico|sigem|\bot\b/.test(blob) || (ot && /documento|reporte/.test(blob))){
+    return {tipo:'documental', folioSIGEM: ot?ot.folioSIGEM:'', empresa: ot?(ot.rB_empresa||ot.rC_empresa||''):'', origenDoc: ot&&ot.ruta==='C'?'servicio_técnico':'visita'};
+  }
+  // Pauta de monitoreo diario / protocolo interno / firma de reporte interno
+  if(/pauta de monitoreo|protocolo interno|reporte interno|firma/.test(blob)){
+    if(/empresa|proveedor|externo/.test(blob)) return {tipo:'protocolo_externo'};
+    return {tipo:'protocolo_interno'};
+  }
+  if(/protocolo externo/.test(blob)) return {tipo:'protocolo_externo'};
+  // Resto: gestión administrativa
+  return {tipo:'otro'};
 }
 
 /* Al recargar la planilla, el detalle Borrador con resultado Si/Si-RA pasa a Oficial
@@ -1064,13 +1314,26 @@ function renderFicha(id){
 }
 function buildBitacora(eq){
   const items=[];
-  for(let m=0;m<12;m++){
-    const d=DB.detalleMP[eq.id+'|'+m];
-    if(d) items.push({date:d.fecha||'', body:`<b>MP ${MES_SHORT[m]}</b> · ${esc(d.result||'—')}${d.borrador?' <span class="badge b-mp-pend">Borrador</span>':' <span class="badge b-mp-ok">Oficial</span>'} · ${esc(d.ejecutor||'')} ${d.obs?'· '+esc(d.obs):''}`});
-    else { const r=eq.registro[m]?.r; if(r) items.push({date:`2026-${String(m+1).padStart(2,'0')}-01`, body:`<b>MP ${MES_SHORT[m]}</b> · resultado oficial <b>${esc(r)}</b> (planilla)`}); }
+  // Trazabilidad de MP: prioriza el historial completo (Registro MP) si existe
+  const hist=DB.historialMP.filter(h=>h.eqId===eq.id);
+  if(hist.length){
+    for(const h of hist){
+      const ofi = (h.result==='Si'||h.result==='Si-RA');
+      items.push({date:h.fecha||`2026-${String(h.mes+1).padStart(2,'0')}-01`, body:
+        `<b>MP ${MES_SHORT[h.mes]}${h.año&&h.año<2026?' '+h.año:''}</b> · <b>${esc(h.resultado||h.result||'—')}</b>`
+        +`${ofi?' <span class="badge b-mp-ok">Oficial</span>':''}`
+        +` · ${esc(h.ejecucion||'')}${h.ingeniero?' · '+esc(h.ingeniero):''}${h.empresa?' · '+esc(h.empresa):''}`
+        +`${h.estado?' · '+esc(h.estado):''}${h.descResultado?' — '+esc(h.descResultado):''}`});
+    }
+  } else {
+    for(let m=0;m<12;m++){
+      const d=DB.detalleMP[eq.id+'|'+m];
+      if(d) items.push({date:d.fecha||'', body:`<b>MP ${MES_SHORT[m]}</b> · ${esc(d.result||'—')}${d.borrador?' <span class="badge b-mp-pend">Borrador</span>':' <span class="badge b-mp-ok">Oficial</span>'} · ${esc(d.ejecutor||'')} ${d.obs?'· '+esc(d.obs):''}`});
+      else { const r=eq.registro[m]?.r; if(r) items.push({date:`2026-${String(m+1).padStart(2,'0')}-01`, body:`<b>MP ${MES_SHORT[m]}</b> · resultado oficial <b>${esc(r)}</b> (planilla)`}); }
+    }
   }
-  for(const p of DB.pendientes.filter(p=>p.eqId===eq.id)) items.push({date:(p.creado||'').slice(0,10), body:`Pendiente <b>${esc(PENDIENTE_TIPOS[p.tipo]?.label||p.tipo)}</b> · ${esc(p.estado)} ${p.descripcion?'· '+esc(p.descripcion):''}`});
-  for(const c of correctivosDe(eq.id)) items.push({date:c.fechaOT||'', body:`OT <b>${esc(c.folioSIGEM||'s/folio')}</b> · ${esc(c.requerimiento||'')} ${c.cerrado?'<span class="badge b-op">Cerrada</span>':'<span class="badge b-no">Abierta</span>'}`});
+  for(const p of DB.pendientes.filter(p=>p.eqId===eq.id)) items.push({date:(p.creado||'').slice(0,10), body:`Pendiente <b>${esc(PENDIENTE_TIPOS[p.tipo]?.label||p.tipo)}</b>${p.tipoOriginal?' <span class="small">('+esc(p.tipoOriginal)+')</span>':''} · ${esc(p.estado)} ${p.descripcion?'· '+esc(p.descripcion):''}`});
+  for(const c of correctivosDe(eq.id)) items.push({date:c.fechaOT||'', body:`OT <b>${esc(c.folioSIGEM||'s/folio')}</b>${c.ruta?' · Ruta '+c.ruta:''} · ${esc(c.requerimiento||'')} ${c.cerrado?'<span class="badge b-op">Cerrada</span>':'<span class="badge b-no">Abierta</span>'}`});
   return items.filter(x=>x.body).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
 }
 function correctivoRowMini(c){
@@ -1148,7 +1411,7 @@ function openDetalleMP(eqId,mes){
   const f=el('div',{});
   f.append(
     field('Fecha de ejecución', inputEl('date','fecha',d.fecha)),
-    field('Ejecutor', selectEl('ejecutor', ['',...EJECUTORES], d.ejecutor)),
+    field('Ejecutor', selectEl('ejecutor', ['',...ejecutoresList()], d.ejecutor)),
     fieldRow(
       field('Tipo', segEl('tipo',['Interno','Externo'], d.tipo, (val)=>{$('#extWrap').style.display=val==='Externo'?'':'none';})),
     ),
@@ -1234,26 +1497,47 @@ function nuevoPendiente(tipo, eq, over={}){
 }
 function renderPendientes(){
   const v=$('#view-pendientes');
-  const ps=DB.pendientes.slice().sort((a,b)=>{
+  const f=UI.pend;
+  const q=(UI.eq.search||'').trim().toLowerCase();
+  let ps=DB.pendientes.filter(p=>{
+    if(f.estado==='abiertos' && p.estado==='Resuelto') return false;
+    if(f.estado==='resueltos' && p.estado!=='Resuelto') return false;
+    if(f.tipo && p.tipo!==f.tipo) return false;
+    if(f.prioridad && p.prioridad!==f.prioridad) return false;
+    if(q){ const hay=[p.equipo,p.inventario,p.servicio,p.descripcion,p.tipoOriginal].join(' ').toLowerCase(); if(!hay.includes(q)) return false; }
+    return true;
+  }).sort((a,b)=>{
     const aa=a.estado==='Resuelto'?1:0, bb=b.estado==='Resuelto'?1:0;
     if(aa!==bb)return aa-bb;
     return (a.fechaCompromiso||'9999').localeCompare(b.fechaCompromiso||'9999');
   });
   v.innerHTML='';
   if(UI.origin.length) v.append(crumbBar());
+  const totAbiertos=DB.pendientes.filter(p=>p.estado!=='Resuelto').length;
   v.append(el('div',{class:'section-head'},
     el('h2',{},'Pendientes'),
+    el('span',{class:'badge b-st'}, totAbiertos+' abiertos'),
     el('span',{class:'spacer'}),
+    el('button',{class:'btn sm', onclick:()=>exportarPendientes(ps)},'Exportar CSV'),
     el('button',{class:'btn sm primary', onclick:()=>openPendiente(null)},'+ Nuevo pendiente'),
   ));
-  // leyenda de tipos
+  // filtros in-situ
+  const estadoSel=el('select',{onchange:e=>{UI.pend.estado=e.target.value;renderPendientes();}});
+  [['abiertos','Abiertos'],['todos','Todos'],['resueltos','Resueltos']].forEach(([val,lab])=>estadoSel.append(el('option',{value:val,selected:f.estado===val?'selected':null},lab)));
+  const tipoSel=el('select',{onchange:e=>{UI.pend.tipo=e.target.value;renderPendientes();}});
+  tipoSel.append(el('option',{value:''},'Todos los tipos'));
+  Object.entries(PENDIENTE_TIPOS).forEach(([k,d])=>tipoSel.append(el('option',{value:k,selected:f.tipo===k?'selected':null},d.label)));
+  const prioSel=el('select',{onchange:e=>{UI.pend.prioridad=e.target.value;renderPendientes();}});
+  prioSel.append(el('option',{value:''},'Toda prioridad'));
+  PRIORIDADES.forEach(pr=>prioSel.append(el('option',{value:pr,selected:f.prioridad===pr?'selected':null},pr)));
   v.append(el('div',{class:'filterbar'},
-    el('span',{class:'small'},'5 tipos en 3 orígenes: '),
-    el('span',{class:'badge b-pr'},'Correctivo · Documental'),
-    el('span',{class:'badge b-mp-ok'},'Preventiva · Protocolo int/ext · Reprogramación'),
-    el('span',{class:'badge b-neutral'},'Administrativo · Otro'),
+    el('span',{class:'filter-pill'},el('label',{},'Estado'),estadoSel),
+    el('span',{class:'filter-pill'},el('label',{},'Tipo'),tipoSel),
+    el('span',{class:'filter-pill'},el('label',{},'Prioridad'),prioSel),
+    el('span',{class:'small'},'· los tipos en planilla se mapean a: Documental, Protocolo int/ext, Reprogramación, Otro'),
+    el('span',{class:'result-count'}, ps.length+' pendientes'),
   ));
-  if(!ps.length){ v.append(el('div',{class:'empty'},el('div',{class:'big'},'Sin pendientes registrados'))); return; }
+  if(!ps.length){ v.append(el('div',{class:'empty'},el('div',{class:'big'},'Sin pendientes con estos filtros'))); return; }
   const wrap=el('div',{class:'table-wrap'});
   const table=el('table',{class:'dense'});
   table.append(el('thead',{},el('tr',{},...['Tipo','Equipo','Servicio','Prioridad','Compromiso','Atraso','Resp. ejecutivo','Tareas','Estado',''].map(t=>el('th',{},t)))));
@@ -1262,8 +1546,11 @@ function renderPendientes(){
     const d=p.fechaCompromiso?daysBetween(p.fechaCompromiso):null;
     const doneTasks=(p.tareas||[]).filter(t=>t.done).length;
     const tr=el('tr',{onclick:()=>openPendiente(p.id)});
+    const tipoCell=el('td',{html:`<span class="badge ${origenBadge(p.origen)}">${esc(PENDIENTE_TIPOS[p.tipo]?.label||p.tipo)}</span>`+(p.tipoOriginal?`<div class="small" style="margin-top:2px">${esc(p.tipoOriginal)}</div>`:'')});
+    const accion=el('td',{onclick:e=>e.stopPropagation()});
+    if(p.estado!=='Resuelto') accion.append(el('button',{class:'btn sm', onclick:()=>resolverPendiente(p.id)},'Resolver'));
     tr.append(
-      el('td',{html:`<span class="badge ${origenBadge(p.origen)}">${esc(PENDIENTE_TIPOS[p.tipo]?.label||p.tipo)}</span>`}),
+      tipoCell,
       el('td',{}, p.equipo||'—'),
       el('td',{}, p.servicio||'—'),
       el('td',{html:`<span class="badge ${p.prioridad==='Alta'?'b-no':p.prioridad==='Media'?'b-st':'b-neutral'}">${esc(p.prioridad)}</span>`}),
@@ -1271,8 +1558,8 @@ function renderPendientes(){
       el('td',{html: (d!=null&&p.estado!=='Resuelto')? (d>0?`<span class="badge b-no">+${d} d</span>`:`<span class="small">${-d} d</span>`):'<span class="small">—</span>'}),
       el('td',{}, p.respEjecutivo||'—'),
       el('td',{html: (p.tareas&&p.tareas.length)?`<span class="dot-tasks">${doneTasks}/${p.tareas.length}</span>`:'<span class="small">·</span>'}),
-      el('td',{html:`<span class="badge ${p.estado==='Resuelto'?'b-op':'b-st'}">${esc(p.estado)}</span>`}),
-      el('td',{}, ''),
+      el('td',{html:`<span class="badge ${p.estado==='Resuelto'?'b-op':p.estado==='En proceso'?'b-mp-rep':'b-st'}">${esc(p.estado)}</span>`}),
+      accion,
     );
     tb.append(tr);
   }
@@ -1297,7 +1584,9 @@ function openPendiente(id, eqIdPreset){
           } return grid;})()
       ));
     } else {
-      body.append(el('div',{class:'note-box',style:'margin-bottom:12px'}, el('b',{},def.label), ' · origen '+def.origen+' — '+def.desc));
+      body.append(el('div',{class:'note-box',style:'margin-bottom:12px'}, el('b',{},def.label), ' · origen '+def.origen+' — '+def.desc,
+        draft.tipoOriginal? el('div',{class:'small',style:'margin-top:6px'}, 'Origen en planilla: ', el('b',{}, draft.tipoOriginal), draft.situacion?(' · '+draft.situacion):'') : null
+      ));
     }
     // núcleo común
     const eqSel = inputEl('text','inv', draft.inventario||'');
@@ -1313,7 +1602,7 @@ function openPendiente(id, eqIdPreset){
       fieldRow(field('Equipo', inputEl('text','equipo',draft.equipo)), field('Serie', inputEl('text','serie',draft.serie))),
       fieldRow(field('Servicio clínico', inputEl('text','servicio',draft.servicio)), field('Prioridad', selectEl('prioridad',PRIORIDADES,draft.prioridad))),
       fieldRow(field('Fecha compromiso', inputEl('date','fechaCompromiso',draft.fechaCompromiso)), field('En espera de', inputEl('text','enEsperaDe',draft.enEsperaDe))),
-      fieldRow(field('Resp. ejecutivo', selectEl('respEjecutivo',['',...EJECUTORES],draft.respEjecutivo)), field('Resp. administrativo', selectEl('respAdministrativo',['',...EJECUTORES],draft.respAdministrativo))),
+      fieldRow(field('Resp. ejecutivo', selectEl('respEjecutivo',['',...ejecutoresList()],draft.respEjecutivo)), field('Resp. administrativo', selectEl('respAdministrativo',['',...ejecutoresList()],draft.respAdministrativo))),
     );
     // extra fields
     if(def.extra.includes('folioSIGEM')) body.append(fieldRow(
@@ -1462,6 +1751,29 @@ function openReprog(id){
   }});
   openDrawer('Reprogramación · '+p.causal, body, foot);
 }
+function resolverPendiente(id){
+  const p=DB.pendientes.find(x=>x.id===id); if(!p)return;
+  if(p.tipo==='reprogramacion'){ openReprog(id); return; }  // tiene su propio ciclo
+  (p.tareas||[]).forEach(t=>t.done=true);
+  p.estado='Resuelto'; p.situacion='Resuelto'; p.fechaCompletado=todayISO();
+  save('pendientes'); toast('Pendiente resuelto'); renderAll();
+}
+function exportarPendientes(ps){
+  if(!ps.length){toast('Nada que exportar');return;}
+  const data=ps.map(p=>({
+    'Equipo':p.equipo,'N° Inventario':p.inventario,'Servicio':p.servicio,
+    'Tipo (programa)':PENDIENTE_TIPOS[p.tipo]?.label||p.tipo,'Origen':p.origen,'Tipo en planilla':p.tipoOriginal||'',
+    'Prioridad':p.prioridad,'Fecha compromiso':p.fechaCompromiso||'','Días atraso':(p.fechaCompromiso&&p.estado!=='Resuelto')?(daysBetween(p.fechaCompromiso)||''):'',
+    'Estado':p.estado,'Resp. ejecutivo':p.respEjecutivo,'Resp. administrativo':p.respAdministrativo,
+    'En espera de':p.enEsperaDe,'Descripción':p.descripcion,
+    'Tareas':(p.tareas||[]).map(t=>(t.done?'[x] ':'[ ] ')+t.t).join(' · '),
+    'Fecha completado':p.fechaCompletado||'','Creado':(p.creado||'').slice(0,10)
+  }));
+  const cols=Object.keys(data[0]);
+  const csv=[cols.join(';')].concat(data.map(r=>cols.map(c=>{const val=(r[c]==null?'':String(r[c])).replace(/"/g,'""');return /[;"\n]/.test(val)?`"${val}"`:val;}).join(';'))).join('\n');
+  download('﻿'+csv,'pendientes_mp2026.csv','text/csv;charset=utf-8');
+  toast('Pendientes exportados ('+ps.length+')');
+}
 function regColLetter(mes){ // P column letter in Registro (T,V,X,Z,AB,AD,AF,AH,AJ,AL,AN,AP)
   const cols=['T','V','X','Z','AB','AD','AF','AH','AJ','AL','AN','AP']; return cols[mes]||'';
 }
@@ -1552,7 +1864,7 @@ function openCorrectivo(id, eqIdPreset){
       fieldRow(field('Folio SIGEM', inputEl('text','folioSIGEM',draft.folioSIGEM)), field('Fecha de la OT', inputEl('date','fechaOT',draft.fechaOT))),
       field('N° Inventario', invEl),
       fieldRow(field('Equipo', inputEl('text','equipo',draft.equipo)), field('Serie', inputEl('text','serie',draft.serie))),
-      fieldRow(field('Servicio clínico', inputEl('text','servicio',draft.servicio)), field('Técnico asignado', selectEl('tecnico',['',...EJECUTORES],draft.tecnico))),
+      fieldRow(field('Servicio clínico', inputEl('text','servicio',draft.servicio)), field('Técnico asignado', selectEl('tecnico',['',...ejecutoresList()],draft.tecnico))),
       field('Estado inicial del equipo', selectEl('estadoInicial',['No Operativo','Servicio Técnico','Operativo'],draft.estadoInicial)),
       field('Requerimiento / falla', textareaEl('requerimiento',draft.requerimiento)),
     );
@@ -1593,8 +1905,8 @@ function openCorrectivo(id, eqIdPreset){
     cz.append(
       fieldRow(field('Cierre operativo · Fecha cierre OT', inputEl('date','fechaCierreOT',draft.fechaCierreOT)),
         field('Cierre documental · ¿Reporte recibido?', checkEl('reporteRecibido',draft.reporteRecibido,'Reporte de Servicio recibido y archivado'))),
-      fieldRow(field('Resp. conseguir reporte', selectEl('respConseguir',['',...EJECUTORES],draft.respConseguir)),
-        field('Resp. administrativo', selectEl('respAdministrativo',['',...EJECUTORES],draft.respAdministrativo))),
+      fieldRow(field('Resp. conseguir reporte', selectEl('respConseguir',['',...ejecutoresList()],draft.respConseguir)),
+        field('Resp. administrativo', selectEl('respAdministrativo',['',...ejecutoresList()],draft.respAdministrativo))),
     );
     if(draft.fechaCierreOT && !draft.reporteRecibido)
       cz.append(el('div',{class:'note-box',style:'border-color:var(--amber);background:var(--amber-tint);color:var(--amber-ink)'},'OT cerrada pero falta el reporte → genera un ', el('b',{},'pendiente documental'), ' (operativamente cerrado, administrativamente abierto).'));
@@ -1621,7 +1933,7 @@ function openCorrectivo(id, eqIdPreset){
     } else if(d.ruta==='C'){
       card.append(el('h3',{},'Ruta C · Envío y retorno del equipo'));
       card.append(
-        fieldRow(field('N° Hoja de Envío', inputEl('text','rC_hojaEnvio',d.rC_hojaEnvio)), field('Responsable que envía', selectEl('rC_respEnvia',['',...EJECUTORES],d.rC_respEnvia))),
+        fieldRow(field('N° Hoja de Envío', inputEl('text','rC_hojaEnvio',d.rC_hojaEnvio)), field('Responsable que envía', selectEl('rC_respEnvia',['',...ejecutoresList()],d.rC_respEnvia))),
         fieldRow(field('Fecha de envío', inputEl('date','rC_fenvio',d.rC_fenvio)), field('Empresa destino', inputEl('text','rC_empresa',d.rC_empresa))),
         fieldRow(field('N° Reporte de Servicio', inputEl('text','rC_nrep',d.rC_nrep)), field('Fecha del reporte', inputEl('date','rC_freprep',d.rC_freprep))),
         fieldRow(field('Archivado en carpeta', checkEl('rC_archivado',d.rC_archivado,'Sí')), field('Fecha de retorno', inputEl('date','rC_fretorno',d.rC_fretorno))),
@@ -1632,7 +1944,7 @@ function openCorrectivo(id, eqIdPreset){
     } else if(d.ruta==='D'){
       card.append(el('h3',{},'Ruta D · Documento de baja'));
       card.append(
-        fieldRow(field('Folio documento de baja', inputEl('text','rD_folio',d.rD_folio)), field('Responsable interno', selectEl('rD_resp',['',...EJECUTORES],d.rD_resp))),
+        fieldRow(field('Folio documento de baja', inputEl('text','rD_folio',d.rD_folio)), field('Responsable interno', selectEl('rD_resp',['',...ejecutoresList()],d.rD_resp))),
         field('Fecha de la baja', inputEl('date','rD_fecha',d.rD_fecha)),
         field('Motivo de la baja', textareaEl('rD_motivo',d.rD_motivo)),
       );
@@ -1654,7 +1966,7 @@ function openCorrectivo(id, eqIdPreset){
       el('div',{id:'itWrap', style:'display:'+(d.modalidad==='Trato Directo'?'':'none')},
         el('div',{class:'small',style:'font-weight:600;margin:6px 0'},'Informe Técnico (Trato Directo)'),
         fieldRow(field('N° Informe Técnico', inputEl('text','it_num',d.it_num)), field('Fecha del informe', inputEl('date','it_fecha',d.it_fecha))),
-        field('Responsable del informe', selectEl('it_resp',['',...EJECUTORES],d.it_resp)),
+        field('Responsable del informe', selectEl('it_resp',['',...ejecutoresList()],d.it_resp)),
       ),
       el('div',{class:'small',style:'font-weight:600;margin:8px 0 6px'},'Orden de Compra'),
       fieldRow(field('N° de OC', inputEl('text','oc_num',d.oc_num)), field('Fecha emisión OC', inputEl('date','oc_femision',d.oc_femision))),
@@ -1789,8 +2101,9 @@ function download(content, name, type){
   const a=el('a',{href:url, download:name}); document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 function exportJSON(){
-  const dump={version:1, exportadoEl:new Date().toISOString(), meta:DB.meta,
-    equipos:DB.equipos, detalleMP:DB.detalleMP, pendientes:DB.pendientes, correctivos:DB.correctivos};
+  const dump={version:2, exportadoEl:new Date().toISOString(), meta:DB.meta,
+    equipos:DB.equipos, detalleMP:DB.detalleMP, historialMP:DB.historialMP,
+    pendientes:DB.pendientes, correctivos:DB.correctivos, catalogos:DB.catalogos};
   download(JSON.stringify(dump,null,2), `respaldo_mp2026_${todayISO()}.json`, 'application/json');
   toast('Respaldo JSON exportado');
 }
@@ -1799,8 +2112,10 @@ async function importJSON(file){
     const txt=await file.text(); const d=JSON.parse(txt);
     if(d.equipos) DB.equipos=d.equipos;
     if(d.detalleMP) DB.detalleMP=d.detalleMP;
+    if(d.historialMP) DB.historialMP=d.historialMP;
     if(d.pendientes) DB.pendientes=d.pendientes;
     if(d.correctivos) DB.correctivos=d.correctivos;
+    if(d.catalogos) DB.catalogos=d.catalogos;
     if(d.meta) DB.meta=d.meta;
     save(); reconcileOficial();
     toast('Respaldo importado'); if(UI.view==='load')go('tablero'); renderAll();
@@ -1814,7 +2129,9 @@ function wire(){
   // nav
   $$('#nav button').forEach(b=>b.addEventListener('click',()=>{ UI.selectedEq=null; UI.origin=[]; go(b.dataset.view); }));
   // search (debounce 300ms)
-  const onSearch=debounce(()=>{ UI.eq.search=$('#globalSearch').value; if(UI.view!=='equipos'){UI.origin=['tablero'];UI.selectedEq=null;go('equipos');} else {UI.selectedEq=null;renderEquipos();} }, 300);
+  const onSearch=debounce(()=>{ UI.eq.search=$('#globalSearch').value;
+    if(UI.view==='pendientes'){ renderPendientes(); return; }
+    if(UI.view!=='equipos'){UI.origin=['tablero'];UI.selectedEq=null;go('equipos');} else {UI.selectedEq=null;renderEquipos();} }, 300);
   $('#globalSearch').addEventListener('input', onSearch);
   // import xlsm
   $('#fileXlsm').addEventListener('change',e=>{if(e.target.files[0])importXlsmFile(e.target.files[0]);e.target.value='';});
@@ -1834,9 +2151,9 @@ function wire(){
   $('#fileJson').addEventListener('change',e=>{if(e.target.files[0])importJSON(e.target.files[0]);e.target.value='';});
   // reset
   $('#btnReset').addEventListener('click',()=>{
-    if(confirm('¿Borrar todos los datos locales (equipos, detalle, pendientes, correctivos)? Esto no afecta tu .xlsm. Exporta un respaldo antes si lo necesitas.')){
+    if(confirm('¿Borrar todos los datos locales (equipos, detalle, pendientes, correctivos)? Esto no afecta tu archivo Excel. Exporta un respaldo antes si lo necesitas.')){
       Object.values(KEYS).forEach(k=>localStorage.removeItem(k));
-      DB.equipos=[];DB.detalleMP={};DB.pendientes=[];DB.correctivos=[];DB.meta={importadoEl:null,archivo:null};
+      DB.equipos=[];DB.detalleMP={};DB.historialMP=[];DB.pendientes=[];DB.correctivos=[];DB.catalogos={ingenieros:[],empresas:[]};DB.meta={importadoEl:null,archivo:null,formato:null};
       renderAll();
     }
   });

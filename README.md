@@ -10,19 +10,40 @@ correctivo, pendientes y reprogramaciones.
 ## Uso
 
 1. Abre `index.html` en un navegador moderno (o sírvelo desde cualquier servidor estático).
-2. Importa **`ProgramaciónMP2026.xlsm`** (arrastra el archivo o haz clic). Hay una copia
-   de prueba en [`sample-data/`](sample-data/).
+2. Importa tu Excel (arrastra el archivo o haz clic). La app **detecta el formato automáticamente**:
+   - **`Sistema_Gestion_MP2026_Integrado.xlsx`** — el sistema completo y poblado: equipos,
+     registro de MP, pendientes, y los 7 módulos de correctivo. **Recomendado.**
+   - **`ProgramaciónMP2026.xlsm`** — la planilla maestra (solo programación + cumplimiento).
+
+   Hay copias de prueba de ambos en [`sample-data/`](sample-data/).
 3. Trabaja desde el **Tablero**; los datos operativos se guardan solos en `localStorage`.
 4. Usa **Exportar JSON** periódicamente como respaldo (un hospital no debe depender solo de `localStorage`).
 
-## Reparto de responsabilidades
+## Dos formatos de entrada
 
-- **El `.xlsm` manda en el cumplimiento** (programación anual + MP hecha / no hecha / causal).
-  La app lo **lee, nunca lo escribe**. Al re-importarlo, refresca el estado *Oficial*.
-- **La app manda en lo operativo:** detalle de cada MP, gestión correctiva, pendientes y
-  bitácora por equipo. Persiste en `localStorage` con respaldo JSON.
+### A) Sistema integrado (`Sistema_Gestion_MP2026_Integrado.xlsx`) — recomendado
 
-## Lectura del `.xlsm`
+Trae **todo el registro ya capturado** y la app lo incorpora sin perder nada:
+
+| Hoja | Se carga como |
+|---|---|
+| `Equipos` | maestro de equipos (la periodicidad se toma de `MP Carta 2026`) |
+| `MP Carta 2026` | programación mensual (`E` ejecutada · `X` programada · `R` reprogramada · `C2/C3` · `B` baja) |
+| `Registro MP` | **historial completo de MP** → trazabilidad por equipo + detalle del mes (Oficial) |
+| `Pendientes` | se **clasifican** al modelo del programa conservando su info original |
+| `1–7. (correctivo)` | se **unen por Folio SIGEM** en un expediente por OT (ruta A/B/C/D + línea de compra + cierres) |
+| `Catálogos` | ingenieros, causales, periodicidad… |
+
+**Clasificación de pendientes.** Las etiquetas de la planilla son inconsistentes (una fila
+"Documento faltante" puede describir en realidad una *pauta de monitoreo* o una *firma*), así que
+la app **lee la descripción** y mapea cada pendiente al modelo del programa (Documental ·
+Protocolo interno/externo · Reprogramación · Otro), **conservando** el tipo original, la situación,
+las tareas (`[x]`/`[ ]`), responsables y fechas. Las reprogramaciones detectan la causal `C1–C8`.
+
+> Re-importar el integrado **refresca** lo que vino del archivo sin duplicar y **conserva** lo que
+> creaste dentro de la app.
+
+### B) Planilla maestra (`ProgramaciónMP2026.xlsm`)
 
 | Hoja | Contenido |
 |---|---|
@@ -64,8 +85,9 @@ correctivo, pendientes y reprogramaciones.
 
 ## Persistencia
 
-`localStorage`: `mp2026.equipos`, `mp2026.detalleMP`, `mp2026.pendientes`, `mp2026.correctivos`
-(+ `mp2026.meta`). Botones **Exportar / Importar JSON** para respaldo y restauración.
+`localStorage`: `mp2026.equipos`, `mp2026.detalleMP`, `mp2026.historialMP`, `mp2026.pendientes`,
+`mp2026.correctivos`, `mp2026.catalogos` (+ `mp2026.meta`). Botones **Exportar / Importar JSON**
+para respaldo y restauración. La app **nunca escribe** el Excel.
 
 ## Documentación de referencia
 
